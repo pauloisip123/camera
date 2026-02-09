@@ -3,107 +3,89 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Google Sheets Barcode Sync</title>
+    <title>Sheet Sync - No Duplicates</title>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        :root { --primary: #0f9d58; --bg: #f1f3f4; }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); display: flex; flex-direction: column; align-items: center; padding: 20px; }
-        .container { width: 100%; max-width: 450px; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        #reader { width: 100%; border-radius: 8px; overflow: hidden; margin-bottom: 15px; }
-        .status-box { padding: 10px; margin-bottom: 10px; border-radius: 6px; font-size: 0.85em; text-align: center; font-weight: bold; }
-        .syncing { background: #e8f0fe; color: #1967d2; }
-        .success { background: #e6fffa; color: #047481; }
-        .error { background: #fff5f5; color: #c53030; }
-        .history-table { width: 100%; border-collapse: collapse; font-size: 0.8em; margin-top: 10px; }
-        .history-table td { padding: 8px; border-bottom: 1px solid #eee; }
+        :root { --primary: #10b981; --bg: #f3f4f6; }
+        body { font-family: sans-serif; background: var(--bg); display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        .container { width: 100%; max-width: 400px; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        #reader { width: 100%; border-radius: 10px; overflow: hidden; margin-bottom: 15px; }
+        .status-banner { padding: 12px; border-radius: 8px; font-size: 0.85em; text-align: center; margin-bottom: 15px; font-weight: bold; display: none; }
+        .loading { background: #dbeafe; color: #1e40af; display: block; }
+        .success { background: #d1fae5; color: #065f46; display: block; }
+        .duplicate { background: #fef3c7; color: #92400e; display: block; }
+        .error { background: #fee2e2; color: #991b1b; display: block; }
     </style>
 </head>
 <body>
 
     <div class="container">
-        <h3 style="margin:0 0 15px 0; color: #3c4043;">Google Sheets Sync</h3>
-        
-        <div id="sync-status" class="status-box" style="display:none;">Ready</div>
-        
+        <h3 style="margin-top:0;">Sheet Realtime Logger</h3>
+        <div id="status-banner" class="status-banner">Ready</div>
         <div id="reader"></div>
-
-        <div style="font-size: 0.9em; color: #5f6368;">
-            <b>Live Records (10-Digits):</b>
-            <table class="history-table">
-                <tbody id="scan-list"></tbody>
-            </table>
-        </div>
+        <p style="font-size: 0.75em; color: #666; text-align: center;">Tatanggapin lamang ang 10-digit numeric codes.</p>
     </div>
 
     <audio id="beep" src="https://www.soundjay.com/buttons/beep-07a.wav" preload="auto"></audio>
+    <audio id="err-sound" src="https://www.soundjay.com/buttons/button-10.wav" preload="auto"></audio>
 
     <script>
-        // --- ILAGAY DITO ANG IYONG GOOGLE WEB APP URL ---
-        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxjPxm39C55l8qdrH3r-AVugT2d78YLnnLkuzo9MQFb9UA6mpRfSf2hJ93sPTm5Ue83Fg/exec';
+        // *** PALITAN ITO NG IYONG NEW DEPLOYMENT URL ***
+        const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwA5AV-hFg1OLFzYJRwHV6kXdshVDVoKF0xOSE9PNzvtBbygClJUDxHL7e53AcXyfV8/exec';
         
-        const scanList = document.getElementById('scan-list');
-        const syncStatus = document.getElementById('sync-status');
+        const banner = document.getElementById('status-banner');
         const beep = document.getElementById('beep');
-        let isSyncing = false;
+        const errSound = document.getElementById('err-sound');
+        let isProcessing = false;
 
         async function startScanner() {
             const html5QrCode = new Html5Qrcode("reader");
-            const config = { fps: 15, qrbox: { width: 250, height: 150 } };
-
             try {
                 await html5QrCode.start(
-                    { facingMode: "environment" }, config, 
+                    { facingMode: "environment" }, 
+                    { fps: 10, qrbox: { width: 250, height: 150 } },
                     (decodedText) => {
-                        // 10 Digits Only Validation
-                        if (/^\d{10}$/.test(decodedText) && !isSyncing) {
-                            sendToGoogleSheets(decodedText);
+                        if (/^\d{10}$/.test(decodedText) && !isProcessing) {
+                            sendToSheets(decodedText);
                         }
                     }
                 );
-            } catch (err) { console.error(err); }
+            } catch (err) { alert("Camera error: " + err); }
         }
 
-        async function sendToGoogleSheets(barcode) {
-            isSyncing = true;
-            updateStatus("Sinasave sa Google Sheets...", "syncing");
+        async function sendToSheets(barcode) {
+            isProcessing = true;
+            showStatus("Checking & Saving...", "loading");
 
             try {
-                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                // Pinapasa ang data sa Google Apps Script
+                await fetch(GOOGLE_SCRIPT_URL, {
                     method: "POST",
-                    mode: "no-cors", // Required para sa Google Apps Script
-                    cache: "no-cache",
-                    headers: { "Content-Type": "application/json" },
+                    mode: "no-cors", 
                     body: JSON.stringify({ barcode: barcode })
                 });
 
-                // Dahil "no-cors", hindi natin mababasa ang response body, 
-                // pero basta walang error sa fetch, assume nating pumasok.
-                
+                // Dahil 'no-cors', hindi natin mababasa ang JSON response.
+                // Pero ang script sa Sheets ay hindi mag-a-append kung duplicate.
                 beep.play();
-                addToUI(barcode);
-                updateStatus("Success! Na-save na.", "success");
-                
-                // Pause sandali bago payagan ang susunod na scan para iwas duplicate
-                setTimeout(() => { 
-                    isSyncing = false; 
-                    updateStatus("Hinghihintay ng bagong scan...", ""); 
-                }, 3000);
+                showStatus("Success! (If not duplicate)", "success");
 
-            } catch (error) {
-                updateStatus("Error sa pag-save!", "error");
-                isSyncing = false;
+            } catch (e) {
+                showStatus("Network Error!", "error");
+                errSound.play();
             }
+
+            // Maghintay ng 3 segundo bago payagan ang susunod na scan
+            setTimeout(() => { 
+                isProcessing = false; 
+                showStatus("Ready for next scan", "");
+                banner.style.display = "none";
+            }, 3000);
         }
 
-        function addToUI(code) {
-            const row = `<tr><td>${new Date().toLocaleTimeString()}</td><td><b>${code}</b></td><td>✅ Sent</td></tr>`;
-            scanList.insertAdjacentHTML('afterbegin', row);
-        }
-
-        function updateStatus(msg, className) {
-            syncStatus.style.display = "block";
-            syncStatus.innerText = msg;
-            syncStatus.className = "status-box " + className;
+        function showStatus(msg, type) {
+            banner.innerText = msg;
+            banner.className = "status-banner " + type;
         }
 
         window.onload = startScanner;
