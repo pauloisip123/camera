@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Barcode Scanner</title>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f8fafc;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            width: 100%;
+            max-width: 500px;
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+        }
+        h2 { text-align: center; color: #1e293b; margin-bottom: 20px; }
+        
+        #reader {
+            width: 100%;
+            border-radius: 10px;
+            overflow: hidden;
+            border: none !important;
+        }
+        
+        #result-container {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            background: #f1f5f9;
+            text-align: center;
+        }
+        
+        .label { font-size: 0.8rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+        #output { 
+            display: block; 
+            font-size: 1.2rem; 
+            font-weight: bold; 
+            color: var(--primary); 
+            margin-top: 5px;
+            word-break: break-all;
+        }
+        
+        .error-msg { color: #ef4444; font-size: 0.9rem; margin-top: 10px; text-align: center; display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>Barcode Scanner</h2>
+        
+        <div id="reader"></div>
+        
+        <div id="error-display" class="error-msg"></div>
+
+        <div id="result-container">
+            <span class="label">Resulta ng Scan:</span>
+            <span id="output">Inaantay ang camera...</span>
+        </div>
+    </div>
+
+    <script>
+        const output = document.getElementById('output');
+        const errorDisplay = document.getElementById('error-display');
+
+        // Function para i-start ang scanner
+        async function startScanner() {
+            const html5QrCode = new Html5Qrcode("reader");
+            
+            const config = { 
+                fps: 15, 
+                qrbox: { width: 250, height: 150 },
+                aspectRatio: 1.0
+            };
+
+            try {
+                // Sinusubukang gamitin ang likod na camera (environment)
+                await html5QrCode.start(
+                    { facingMode: "environment" }, 
+                    config, 
+                    (decodedText) => {
+                        // Kapag may na-scan
+                        output.innerText = decodedText;
+                        if (navigator.vibrate) navigator.vibrate(100); // Vibrate on success
+                    }
+                );
+                output.innerText = "Handa na! Itapat ang barcode.";
+            } catch (err) {
+                // Fallback kung walang back camera o may error sa permission
+                console.error("Camera error:", err);
+                errorDisplay.style.display = "block";
+                errorDisplay.innerText = "Error: Siguraduhing naka-HTTPS at allowed ang camera permission.";
+                output.innerText = "Camera error.";
+            }
+        }
+
+        // Awtomatikong mag-start pagka-load ng page
+        window.addEventListener('DOMContentLoaded', () => {
+            // Konting delay para masiguradong ready ang DOM at hardware
+            setTimeout(startScanner, 500);
+        });
+    </script>
+</body>
+</html>
