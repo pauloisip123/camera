@@ -3,114 +3,151 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Barcode Logger Pro</title>
+    <title>Persistent Barcode Logger</title>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        :root { --primary: #2563eb; --bg: #f8fafc; }
-        body { font-family: sans-serif; background: var(--bg); margin: 0; padding: 15px; display: flex; flex-direction: column; align-items: center; }
+        :root { --primary: #2563eb; --bg: #f8fafc; --text: #1e293b; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); padding: 15px; display: flex; flex-direction: column; align-items: center; color: var(--text); }
         
-        .container { width: 100%; max-width: 600px; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .container { width: 100%; max-width: 500px; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         
-        #reader { width: 100%; border-radius: 10px; overflow: hidden; margin-bottom: 20px; background: #000; }
+        #reader { width: 100%; border-radius: 10px; overflow: hidden; background: #000; margin-bottom: 15px; }
         
-        .history-section { width: 100%; margin-top: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; background: white; font-size: 0.9em; }
-        th, td { padding: 12px; border-bottom: 1px solid #ddd; text-align: left; }
-        th { background: #f1f5f9; color: #475569; }
+        .stats { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 0.9em; }
+        .status-dot { color: #10b981; font-weight: bold; }
         
-        .status { font-size: 0.8em; color: #10b981; font-weight: bold; margin-bottom: 5px; text-align: center; display: block; }
-        .btn-clear { background: #ef4444; color: white; border: none; padding: 8px 15px; border-radius: 5px; cursor: pointer; float: right; margin-bottom: 10px; }
+        .history-section { width: 100%; margin-top: 10px; }
+        .table-wrapper { max-height: 300px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: left; font-size: 0.85em; }
+        th { background: #f8fafc; position: sticky; top: 0; color: #64748b; }
+        
+        .btn-clear { background: #fee2e2; color: #ef4444; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.8em; font-weight: bold; }
+        
+        #toast { 
+            position: fixed; top: 20px; background: rgba(0,0,0,0.8); color: white; padding: 12px 24px; 
+            border-radius: 50px; font-size: 0.85em; opacity: 0; transition: 0.3s; pointer-events: none; z-index: 1000;
+        }
     </style>
 </head>
 <body>
 
+    <div id="toast">Duplicate!</div>
+
     <div class="container">
-        <h2 style="text-align:center; margin-top:0;">Barcode Scanner Logger</h2>
+        <h3 style="margin-top:0;">Barcode Archive</h3>
         
-        <span id="status-text" class="status">Initializing Camera...</span>
+        <div class="stats">
+            <span id="status" class="status-dot">● System Online</span>
+            <button class="btn-clear" onclick="clearData()">Reset All</button>
+        </div>
+
         <div id="reader"></div>
 
         <div class="history-section">
-            <button class="btn-clear" onclick="clearList()">Clear List</button>
-            <strong>History (<span id="count">0</span>)</strong>
-            <table id="scan-table">
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Data</th>
-                    </tr>
-                </thead>
-                <tbody id="scan-list">
-                    </tbody>
-            </table>
+            <div style="display:flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
+                <p style="margin: 0; font-size: 0.85em; color: #64748b;">Unique Items: <b id="count" style="color:var(--primary)">0</b></p>
+                <span style="font-size: 0.7em; color: #94a3b8;">Auto-saved to device</span>
+            </div>
+            
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Oras</th>
+                            <th>Data</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scan-list"></tbody>
+                </table>
+            </div>
         </div>
     </div>
 
     <audio id="beep" src="https://www.soundjay.com/buttons/beep-07a.wav" preload="auto"></audio>
 
     <script>
+        // 1. Load data mula sa localStorage (kung meron)
+        let savedScans = JSON.parse(localStorage.getItem('myBarcodes')) || [];
         const scanList = document.getElementById('scan-list');
         const countDisplay = document.getElementById('count');
         const beep = document.getElementById('beep');
-        let lastResult = "";
-        let scanCount = 0;
+        const toast = document.getElementById('toast');
+
+        // I-display ang lumang data pag-load
+        function init() {
+            renderTable();
+            startScanner();
+        }
 
         async function startScanner() {
             const html5QrCode = new Html5Qrcode("reader");
-            const config = { fps: 10, qrbox: { width: 250, height: 150 } };
+            const config = { fps: 15, qrbox: { width: 250, height: 150 } };
 
             try {
                 await html5QrCode.start(
                     { facingMode: "environment" }, 
                     config, 
                     (decodedText) => {
-                        // Iwasan ang duplicate scan sa loob ng 2 segundo
-                        if (decodedText !== lastResult) {
-                            lastResult = decodedText;
-                            addToList(decodedText);
-                            
-                            // Reset lastResult para pwedeng i-scan ulit ang parehong item after 2 secs
-                            setTimeout(() => { lastResult = ""; }, 2000);
+                        // Check kung exist na sa array
+                        const isDuplicate = savedScans.some(item => item.content === decodedText);
+                        
+                        if (isDuplicate) {
+                            showToast("Duplicate ignored");
+                        } else {
+                            saveNewScan(decodedText);
                         }
                     }
                 );
-                document.getElementById('status-text').innerText = "● System Active";
             } catch (err) {
-                document.getElementById('status-text').innerText = "Error: Camera access denied.";
-                document.getElementById('status-text').style.color = "red";
+                document.getElementById('status').innerText = "● Camera Error";
+                document.getElementById('status').style.color = "red";
             }
         }
 
-        function addToList(data) {
-            // Beep Sound
-            beep.play();
-            
-            // Vibration
-            if (navigator.vibrate) navigator.vibrate(100);
-
+        function saveNewScan(content) {
             const now = new Date();
-            const timeStr = now.getHours() + ":" + now.getMinutes().toString().padStart(2, '0') + ":" + now.getSeconds().toString().padStart(2, '0');
-
-            // Create new row
-            const row = scanList.insertRow(0); // Insert sa pinakataas
-            const cell1 = row.insertCell(0);
-            const cell2 = row.insertCell(1);
-
-            cell1.innerText = timeStr;
-            cell2.innerText = data;
-
-            // Update counter
-            scanCount++;
-            countDisplay.innerText = scanCount;
+            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            const newEntry = { time: timeStr, content: content };
+            
+            // I-add sa unahan ng array
+            savedScans.unshift(newEntry);
+            
+            // 2. I-save sa LocalStorage
+            localStorage.setItem('myBarcodes', JSON.stringify(savedScans));
+            
+            beep.play();
+            if (navigator.vibrate) navigator.vibrate(100);
+            
+            renderTable();
         }
 
-        function clearList() {
-            scanList.innerHTML = "";
-            scanCount = 0;
-            countDisplay.innerText = "0";
+        function renderTable() {
+            scanList.innerHTML = savedScans.map(item => `
+                <tr>
+                    <td>${item.time}</td>
+                    <td style="word-break: break-all;"><b>${item.content}</b></td>
+                </tr>
+            `).join('');
+            countDisplay.innerText = savedScans.length;
         }
 
-        window.onload = startScanner;
+        function showToast(msg) {
+            toast.innerText = msg;
+            toast.style.opacity = "1";
+            setTimeout(() => { toast.style.opacity = "0"; }, 1500);
+        }
+
+        function clearData() {
+            if(confirm("Sigurado ka bang buburahin lahat ng records?")) {
+                localStorage.removeItem('myBarcodes');
+                savedScans = [];
+                renderTable();
+            }
+        }
+
+        window.onload = init;
     </script>
 </body>
 </html>
