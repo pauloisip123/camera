@@ -3,89 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sheet Sync - No Duplicates</title>
+    <title>B2 Column Sync Scanner</title>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        :root { --primary: #10b981; --bg: #f3f4f6; }
-        body { font-family: sans-serif; background: var(--bg); display: flex; flex-direction: column; align-items: center; padding: 20px; }
-        .container { width: 100%; max-width: 400px; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        #reader { width: 100%; border-radius: 10px; overflow: hidden; margin-bottom: 15px; }
-        .status-banner { padding: 12px; border-radius: 8px; font-size: 0.85em; text-align: center; margin-bottom: 15px; font-weight: bold; display: none; }
-        .loading { background: #dbeafe; color: #1e40af; display: block; }
-        .success { background: #d1fae5; color: #065f46; display: block; }
-        .duplicate { background: #fef3c7; color: #92400e; display: block; }
-        .error { background: #fee2e2; color: #991b1b; display: block; }
+        body { font-family: sans-serif; background: #f0f2f5; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        .card { width: 100%; max-width: 400px; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; }
+        #reader { width: 100%; border-radius: 10px; overflow: hidden; margin-bottom: 15px; background: #000; }
+        .status { padding: 10px; border-radius: 8px; font-weight: bold; font-size: 0.9em; margin-bottom: 10px; display: none; }
+        .active { display: block; background: #e0f2fe; color: #0369a1; }
+        .success { display: block; background: #dcfce7; color: #15803d; }
+        .warning { display: block; background: #fef3c7; color: #92400e; }
     </style>
 </head>
 <body>
 
-    <div class="container">
-        <h3 style="margin-top:0;">Sheet Realtime Logger</h3>
-        <div id="status-banner" class="status-banner">Ready</div>
+    <div class="card">
+        <h3 style="margin-top:0;">Column B2 Sync</h3>
+        <div id="status" class="status">Initializing...</div>
         <div id="reader"></div>
-        <p style="font-size: 0.75em; color: #666; text-align: center;">Tatanggapin lamang ang 10-digit numeric codes.</p>
+        <p style="font-size: 0.8em; color: #666;">Target: First empty cell in Column B (10 digits only)</p>
     </div>
 
     <audio id="beep" src="https://www.soundjay.com/buttons/beep-07a.wav" preload="auto"></audio>
-    <audio id="err-sound" src="https://www.soundjay.com/buttons/button-10.wav" preload="auto"></audio>
 
     <script>
-        // *** PALITAN ITO NG IYONG NEW DEPLOYMENT URL ***
+        // ILAGAY DITO ANG BAGONG DEPLOYMENT URL
         const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwA5AV-hFg1OLFzYJRwHV6kXdshVDVoKF0xOSE9PNzvtBbygClJUDxHL7e53AcXyfV8/exec';
         
-        const banner = document.getElementById('status-banner');
+        const statusDiv = document.getElementById('status');
         const beep = document.getElementById('beep');
-        const errSound = document.getElementById('err-sound');
-        let isProcessing = false;
+        let isLocked = false;
 
         async function startScanner() {
             const html5QrCode = new Html5Qrcode("reader");
             try {
                 await html5QrCode.start(
                     { facingMode: "environment" }, 
-                    { fps: 10, qrbox: { width: 250, height: 150 } },
+                    { fps: 15, qrbox: { width: 250, height: 150 } },
                     (decodedText) => {
-                        if (/^\d{10}$/.test(decodedText) && !isProcessing) {
-                            sendToSheets(decodedText);
+                        // VALIDATION: 10 Digits at hindi busy ang sync
+                        if (/^\d{10}$/.test(decodedText) && !isLocked) {
+                            syncToSheets(decodedText);
                         }
                     }
                 );
-            } catch (err) { alert("Camera error: " + err); }
+                updateStatus("System Ready", "active");
+            } catch (err) { updateStatus("Camera Error", "warning"); }
         }
 
-        async function sendToSheets(barcode) {
-            isProcessing = true;
-            showStatus("Checking & Saving...", "loading");
+        async function syncToSheets(code) {
+            isLocked = true;
+            updateStatus("Checking & Saving: " + code, "active");
 
             try {
-                // Pinapasa ang data sa Google Apps Script
                 await fetch(GOOGLE_SCRIPT_URL, {
                     method: "POST",
-                    mode: "no-cors", 
-                    body: JSON.stringify({ barcode: barcode })
+                    mode: "no-cors",
+                    body: JSON.stringify({ barcode: code })
                 });
-
-                // Dahil 'no-cors', hindi natin mababasa ang JSON response.
-                // Pero ang script sa Sheets ay hindi mag-a-append kung duplicate.
+                
                 beep.play();
-                showStatus("Success! (If not duplicate)", "success");
-
+                updateStatus("Saved to Column B!", "success");
             } catch (e) {
-                showStatus("Network Error!", "error");
-                errSound.play();
+                updateStatus("Sync Failed!", "warning");
             }
 
-            // Maghintay ng 3 segundo bago payagan ang susunod na scan
+            // Cooldown para iwas multiple scan sa iisang tutok
             setTimeout(() => { 
-                isProcessing = false; 
-                showStatus("Ready for next scan", "");
-                banner.style.display = "none";
+                isLocked = false; 
+                updateStatus("Ready for next scan", "active");
             }, 3000);
         }
 
-        function showStatus(msg, type) {
-            banner.innerText = msg;
-            banner.className = "status-banner " + type;
+        function updateStatus(msg, type) {
+            statusDiv.innerText = msg;
+            statusDiv.className = "status " + type;
         }
 
         window.onload = startScanner;
